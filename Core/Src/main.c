@@ -63,6 +63,7 @@ static void MX_IWDG_Init(void);
 static void MX_CAN_Init(void);
 /* USER CODE BEGIN PFP */
 int uart_printf(const char* format, ...);
+void CAN_Filter_Init(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -103,6 +104,8 @@ int main(void)
   MX_IWDG_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
+  // 初始化 CAN过滤器
+  CAN_Filter_Init();
   // 初始化 BMS SOC
   BQ76920_Init_SOC();
 
@@ -320,6 +323,86 @@ int uart_printf(const char* format, ...)
   
   return len;
 }
+
+
+/**
+ * 通过can的方式发送数据，需要提前先配置can过滤器
+ */
+
+
+ void CAN_Filter_Init(void)
+ {
+    // 配置can过滤器
+    CAN_FilterTypeDef  sFilterInit;
+
+    // 配置过滤器：接收所有 ID（如果不配置，CAN 可能无法正常工作）
+    sFilterInit.FilterBank = 0;                                     // 过滤器0
+    sFilterInit.FilterMode = CAN_FILTERMODE_IDMASK;                 // 过滤器模式：ID掩码(屏蔽模式)
+    sFilterInit.FilterScale = CAN_FILTERSCALE_32BIT;                // 过滤器规模：32位
+    sFilterInit.FilterIdHigh = 0x0000;
+    sFilterInit.FilterIdLow = 0x0000;
+    sFilterInit.FilterMaskIdHigh = 0x0000;
+    sFilterInit.FilterMaskIdLow = 0x0000;
+    sFilterInit.FilterFIFOAssignment = CAN_RX_FIFO0;              // 过滤器FIFO分配：FIFO0
+    sFilterInit.FilterActivation = ENABLE;                        // 过滤器激活：使能
+    sFilterInit.SlaveStartFilterBank = 14;                        // 从过滤器14开始
+
+    // 配置过滤器
+    HAL_CAN_ConfigFilter(&hcan, &sFilterInit);
+    // 启动 CAN
+    HAL_CAN_Start(&hcan);
+ }
+
+
+
+
+
+
+ void BMS_CAN_SendData(void)
+{
+    CAN_TxHeaderTypeDef TxHeader;
+    uint8_t TxData[8];
+    uint32_t TxMailbox;
+
+    // --- 1. 设置“集装箱”标签和属性 ---
+    TxHeader.StdId = 0x101;           // 消息 ID：0x101 (可以自定义)
+    TxHeader.IDE = CAN_ID_STD;        // 标准帧
+    TxHeader.RTR = CAN_RTR_DATA;      // 数据帧
+    TxHeader.DLC = 8;                 // 发送 8 个字节
+
+    // --- 2. 装载货物（将 BMS 数据放入 8 个字节中） ---
+    
+    // 第1节 (Cell_V[0]) -> 占用 TxData 的 0 和 1
+    TxData[0] = (BQ76920_Data.Cell_V[0] >> 8) & 0xFF; 
+    TxData[1] = BQ76920_Data.Cell_V[0] & 0xFF;
+
+    // 第2节 (Cell_V[1]) -> 占用 TxData 的 2 和 3
+    TxData[2] = (BQ76920_Data.Cell_V[1] >> 8) & 0xFF; 
+    TxData[3] = BQ76920_Data.Cell_V[1] & 0xFF;
+
+    // 第3节 (Cell_V[2]) -> 占用 TxData 的 4 和 5
+    TxData[4] = (BQ76920_Data.Cell_V[2] >> 8) & 0xFF; 
+    TxData[5] = BQ76920_Data.Cell_V[2] & 0xFF;
+
+    // 第4节 (Cell_V[3]) -> 占用 TxData 的 6 和 7
+    TxData[6] = (BQ76920_Data.Cell_V[3] >> 8) & 0xFF; 
+    TxData[7] = BQ76920_Data.Cell_V[3] & 0xFF;
+    // --- 3. 扔到总线上 ---
+    // 如果发送失败，这里可以加简单的判断
+    HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+
+    //第二次发送第五节电压，前面已经发送了前4节电压，这里只发送第五节电压
+
+    TxHeader.StdId = 0x102;
+    TxHeader.DLC = 2; // 只用2个字节
+
+    // 第5节 (Cell_V[4]) -> 占用 TxData 的 0 和 1
+    TxData[0] = (BQ76920_Data.Cell_V[4] >> 8) & 0xFF; 
+    TxData[1] = BQ76920_Data.Cell_V[4] & 0xFF;
+
+    HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+}
+ 
 
 /* USER CODE END 4 */
 

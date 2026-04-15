@@ -264,6 +264,8 @@ void task3(void *pvParameters)
          uint8_t dd;
         BQ76920_Read_Reg(0x0B, &dd);
         uart_printf("CC_CFG=0x%02X\n", dd);
+        // can 发送电压
+        BMS_CAN_SendData();
         vTaskDelay(1000);
     }
     

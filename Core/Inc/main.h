@@ -58,6 +58,7 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 int uart_printf(const char* format, ...);
+void BMS_CAN_SendData(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

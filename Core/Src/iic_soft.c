@@ -431,3 +431,8 @@ read_error:
     __set_PRIMASK(primask_bit);
     return 1;   // 失败
 }
+
+
+
+
+
