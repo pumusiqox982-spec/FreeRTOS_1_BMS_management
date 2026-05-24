@@ -35,7 +35,7 @@ void task1(void *pvParameters);
 
 
 /* 任务2的配置 */
-#define TASK2_STACK_SIZE 512
+#define TASK2_STACK_SIZE 1024
 #define TASK2_PRIORITY 3
 TaskHandle_t Task2Handle;
 StackType_t Task2Stack[TASK2_STACK_SIZE];
@@ -169,7 +169,7 @@ void task1(void *pvParameters)
 {
     while(1)
     {
-        
+       
         
     }
 }
@@ -191,31 +191,33 @@ void task2(void *pvParameters)
         // 技巧：我们可以直接读取硬件寄存器，看看现在到底谁在均衡
         uint8_t real_bal_status = 0;
         // 读取硬件寄存器，判断是否有故障
-        uart_printf("---Fault Status---\r\n");
+       // uart_printf("---Fault Status---\r\n");
         BQ76920_Diagnose_Fault();
         BQ76920_Read_Reg(0x01, &real_bal_status); 
-
-        uart_printf("\r\n--- BMS Monitor ---\r\n");
-        uart_printf("V: %dmV, %dmV, %dmV, %dmV, %dmV\r\n", 
-                    BQ76920_Data.Cell_V[0], BQ76920_Data.Cell_V[1], 
-                    BQ76920_Data.Cell_V[2], BQ76920_Data.Cell_V[3], 
-                    BQ76920_Data.Cell_V[4]);
-        uart_printf("SOC: %d%% | Current: %d mA\r\n",(uint16_t)BQ76920_Data.SOC, BQ76920_Data.CC);
-        uart_printf("Balance Active Bits: 0x%02X\r\n", real_bal_status);
+        uart_printf("{\"cells\":[%d,%d,%d,%d,%d],\"current\":%d,\"temp\":%d,\"soc\":%d,\"minV\":%d,\"maxV\":%d,\"diffV\":%d}\r\n",
+        BQ76920_Data.Cell_V[0], BQ76920_Data.Cell_V[1],
+        BQ76920_Data.Cell_V[2], BQ76920_Data.Cell_V[3],
+        BQ76920_Data.Cell_V[4],
+        (int)BQ76920_Data.CC,
+        (int)BQ76920_Data.Temp,
+        (uint16_t)BQ76920_Data.SOC,
+        (int)BQ76920_Data.MinVolt,
+        (int)BQ76920_Data.MaxVolt,
+        (int)BQ76920_Data.DiffVolt);
+       
+       // uart_printf("Balance Active Bits: 0x%02X\r\n", real_bal_status);
         Watchdog_Monitor_Data.Task2_RunFlag = 1; // 标记任务2存活
-        uint8_t rx_data;
-if (HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK) {
-    if (rx_data == 'U') {
-        Bms_Reset_Safety_Lock();
-        uart_printf("手动解锁命令已执行\n");
+    //    uint8_t rx_data;
+    //if (HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK) {
+    //if (rx_data == 'U') {
+       // Bms_Reset_Safety_Lock();
+       // uart_printf("手动解锁命令已执行\n");
+    //}
+    vTaskDelay(2000); // 均衡和打印，2秒一次完美
     }
-}
-        
-      
-        
-        vTaskDelay(2000); // 均衡和打印，2秒一次完美
-    }
-}
+          
+ }
+
 
 
 
@@ -225,22 +227,17 @@ if (HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK) {
 */
 void task3(void *pvParameters)
 {
-    /*开启ADC*/
-    BQ76920_ADC_Init();
-    BQ76920_CC_Init();
-    /*初始化硬件保护*/
-    BQ76920_Hardware_Protection_Init();
-    BQ76920_Get_Offset_Gain(); 
-    uint8_t sys_stat = 0;
-        BQ76920_Read_Reg(0x05, &sys_stat); // 读取系统状态寄存器
-        uart_printf("SYS_STAt: 0x%02X\r\n", sys_stat); // 打印状态寄存器，方便调试
+        // uint8_t sys_stat = 0;
+       // BQ76920_Read_Reg( , &sys_stat); // 读取系统状态寄存器
+       //uart_printf("SYS_STAt: 0x%02X\r\n", sys_stat); // 打印状态寄存器，方便调试
         
     while(1)
     {
        
        BQ76920_Get_Voltage(BQ76920_Data.Cell_V);
        //读取电压并且更新最大电压和最小电压
-      Check_Safety_protection();
+       Check_Safety_protection();     //这个函数内已经获取了最大电压和最小电压和温度和CC，无需重复获取
+       
         // 注意：这个函数的执行频率必须和它内部计算公式的时间常数对齐
         BQ76920_Get_SOC();
         BQ76920_GET_SOH();
@@ -248,24 +245,12 @@ void task3(void *pvParameters)
         // 只有当两个任务都打过卡时，才喂狗
         if (Watchdog_Monitor_Data.Task2_RunFlag && Watchdog_Monitor_Data.Task3_RunFlag) {
             HAL_IWDG_Refresh(&hiwdg);
-            uart_printf("喂狗成功\r\n");
             // 喂完后重置，要求两个任务在下一轮重新打卡
             Watchdog_Monitor_Data.Task2_RunFlag = 0;
             Watchdog_Monitor_Data.Task3_RunFlag = 0;
         }
-        uint8_t sys_stat = 0;
-        BQ76920_Read_Reg(0x05, &sys_stat); // 读取系统状态寄存器
-        uart_printf("SYS_STAt: 0x%02X\r\n", sys_stat); // 打印状态寄存器，方便调试
-
-       uint8_t hi, lo;
-       BQ76920_Read_Reg(0x32, &hi);
-        BQ76920_Read_Reg(0x33, &lo);
-         uart_printf("CC_HI=0x%02X, CC_LO=0x%02X\n", hi, lo);
-         uint8_t dd;
-        BQ76920_Read_Reg(0x0B, &dd);
-        uart_printf("CC_CFG=0x%02X\n", dd);
         // can 发送电压
-        BMS_CAN_SendData();
+        //BMS_CAN_SendData();
         vTaskDelay(1000);
     }
     

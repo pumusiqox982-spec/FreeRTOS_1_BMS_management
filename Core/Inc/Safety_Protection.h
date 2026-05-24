@@ -65,7 +65,7 @@ void Check_Safety_protection(void); // 检查安全保护
  uint8_t BQ76920_Diagnose_Fault(void); // 诊断故障，返回故障状态
   void BQ76920_GET_SOH(void); // 获取SOH值
   void Bms_Reset_Safety_Lock(void); // 重置安全锁
-  
+  void BQ76920_Hardware_Protection_Init(void); // 初始化硬件保护
  
 
 

@@ -192,49 +192,37 @@ uint16_t SocOcvTab[101]=
  * 注意：SYS_STAT (0x00) 寄存器的逻辑不是普通的“存储”，而是 W1C (Write 1 to Clear)，即写 1 清零该位。不想清零的直接写0
  * 4. 控制与使能位（开关 CC）：SYS_CTRL2 (地址 0x05) 中的 CC_EN (Bit 6)： 
    作用：库仑计的总开关。   
-   操作：设置为 1 开启“持续模式”（每 250ms 更新一次数据）；设置为 0 关闭。
+   操作：设置为 1 开启“持续模式”（每 250ms 更新一次数据）；设置为 0 关闭。不是计算瞬时电流，而是计算过去250ms的平均电流。
  * 5. 控制与使能位（开关 CC）：SYS_CTRL2 (地址 0x05) 中的 CC_ONESHOT (Bit 5)：
    作用：单次采样模式。在 CC_EN=0 时，把这一位置 1，芯片会只测一次电流（耗时 250ms），测完后自动停止。
    6. 强制配置寄存器（必须初始化的位）：CC_CFG (地址 0x0B)：
       要求：手册明确标注 “Must be programmed to 0x19”（必须编程为 0x19）。
       意义：这是芯片内部对库仑计电路的特定配置，如果不写这个值，电流测量可能不准。
 
-    
-     
-
-
-
  * */
 
  void BQ76920_Get_CC(void)
 {
     uint8_t status = 0;
-    uint8_t raw_data[2] ; // 准备存放 0x32(HI) 和 0x33(LO)
-    int16_t new_cc_raw = 0;
+    uint8_t raw_data[2] = {0};
+    int16_t temp;
 
-    // 1. 检查状态：看 CC_READY (Bit 7) 是否为 1
+    // 1. 检查 CC_READY
     BQ76920_Read_Reg(0x00, &status);
-    if (!(status & 0x80)) 
-    {
-        return; // 数据没准备好，直接返回，保持变量里的旧值
-    }
+    if (!(status & 0x80)) return;
 
-    // 2. 使用 Burst 读连续获取高低字节，减少总线占用次数和错位风险
+    // 2. 原子读取 CC 值
     if (BQ76920_Read_Burst(0x32, raw_data, 2) == 0)
     {
-        uint16_t temp =  (uint16_t)(raw_data[0] << 8  | raw_data[1]); 
-        new_cc_raw = (int16_t)temp; 
-        // 换算成电流 (单位 mA)
-        // 公式：ADC * 8.44 / 电阻mΩ
-        float current_ma = (float)(new_cc_raw * 8.44f / 5.0f);
-        BQ76920_Data.CC = (int16_t)(current_ma);
-        
-    }
+        temp = (int16_t)((raw_data[0] << 8) | raw_data[1]);
 
-    // 3. 【最关键的一步】清除 CC_READY 标志位
-    // 必须要向 Bit 7 写 1 才能清除它 (W1C 逻辑)
-    //必须直接写 0x80
-    BQ76920_Write_Reg(0x00, 0x80); 
+        // 直接计算电流 (单位 mA)
+        float avg_curr_ma = (float)(temp * 8.44f / 5.0f);
+        BQ76920_Data.CC = avg_curr_ma;
+
+        // 3. 清除 CC_READY
+        BQ76920_Write_Reg(0x00, 0x80);
+    }
     
 }
 
@@ -274,7 +262,7 @@ void BQ76920_Get_Temp(void)
         if (hi_byte == 0 && lo_byte == 0)
         {            
         //合并高6位和低八位，得到16位温度值
-        new_temp = (uint16_t)((HI << 8) | LO)&0x3FFF ;//高两位无效
+        new_temp = (int16_t)(((HI & 0x3F) << 8) | LO)&0x3FFF ;//高两位无效
         // 3. 换算成电压值
         temp = new_temp * 0.000382f;
        //4. 换算电阻值
@@ -335,6 +323,7 @@ float Convert_Resistance_To_Temp(float r_kohm) {
  * 计算SOC值
  * 最常用且最可靠的方案是 “安时积分法 (Ah Integration)” 配合 “开路电压 (OCV) 修正
  * 安时积分法的计算公式：公式原型: SOC(t) = SOC(0) - (1 / Q_max) * ∫ I(t) dt
+ * 记得开机之前先用开路电压法初始化RemainingCharge
  */
 
 /**
@@ -374,8 +363,8 @@ float Convert_Resistance_To_Temp(float r_kohm) {
     // 1.计算存入或消耗的电荷，公式：电流量 = 电流(mA) * 时间(h) = mA * (0.1s / 3600s)
     // 电流是CC库仑计的电流值，单位是mA，时间是0.1s，但计算的是mAh，所以要把周期转换为小时，0.1就是100ms，除于3600，得到0.0002778h
     // 如果500ms采样一次，要改成500ms/3600s，0.5s，得到0.0001389h
-    // 0.0002778f（对应 1000ms）
-    float charge = (float) (BQ76920_Data.CC * 0.0002778f); // 这里假设采样周期是1000ms
+    // 0.000027778f（对应 1000ms）
+    float charge = (float) (BQ76920_Data.CC * 0.000027778f); // 这里假设采样周期是1000ms
 
     // 2.把得到的电流量加入到剩余电荷中，也可能是减少，充电时增加，放电时减少
     BQ76920_Data.RemainingCharge += charge;
@@ -420,32 +409,28 @@ float Convert_Resistance_To_Temp(float r_kohm) {
 
  void BQ76920_Get_SOC_From_Voltage(float volt_mv)
  {
-    // 1.边界检查
-    if (volt_mv >SocOcvTab[100])
+    // 1.边界检查 + 更新剩余容量
+    if (volt_mv > SocOcvTab[100])
     {
         BQ76920_Data.SOC = 100.0f;
+        BQ76920_Data.RemainingCharge = BQ76920_Data.Real_Capacity;
+        return;   // 必须退出
     }
-    else if (volt_mv <SocOcvTab[0])
+    else if (volt_mv < SocOcvTab[0])
     {
         BQ76920_Data.SOC = 0.0f;
+        BQ76920_Data.RemainingCharge = 0.0f;
+        return;   // 必须退出
     }
 
-    // 2.查找SOC值
+    // 2.正常区间查找（原有代码不变）
     for (int i = 0; i < 100; i++)
     {
         if (volt_mv >= SocOcvTab[i] && volt_mv < SocOcvTab[i+1])
         {
-           // 计算在该 1% 区间内的偏移比例 (0.0 ~ 1.0)
-             float ratio = (volt_mv - (float)SocOcvTab[i]) / (float)(SocOcvTab[i+1] - SocOcvTab[i]);
-
-            // 核心修正：SOC = 索引(整数百分比) + 比例(小数部分)
+            float ratio = (volt_mv - SocOcvTab[i]) / (SocOcvTab[i+1] - SocOcvTab[i]);
             BQ76920_Data.SOC = (float)i + ratio;
-
-            /* --- 关键点：同步更新剩余 mAh --- */
-            // 只有更新了电荷量，安时积分函数才会基于这个准确的“水位”继续往后算
-            BQ76920_Data.RemainingCharge = (BQ76920_Data.SOC / 100.0f) * BAT_CAPACITY_MAH;
-            
-            // 找到后立刻退出函数，防止被后续循环干扰
+            BQ76920_Data.RemainingCharge = (BQ76920_Data.SOC / 100.0f) * BQ76920_Data.Real_Capacity;
             return;
         }
         
@@ -459,21 +444,22 @@ float Convert_Resistance_To_Temp(float r_kohm) {
  */
 void BQ76920_Init_SOC(void)
 {
-    // 1. 确保第一次读取有有效电压数据：初始化 ADC、读取增益/偏移并读取一次单体电压
+    // 1. 确保第一次读取有有效电压数据：初始化 ADC、读取增益/偏移并读取一次单体电压,初始化CC库仑计
     BQ76920_ADC_Init();
     BQ76920_Get_Offset_Gain();
     BQ76920_Get_Voltage(BQ76920_Data.Cell_V);
+    BQ76920_CC_Init();
 
-    // 2. 初始化剩余电荷,提前找出当前电池组中电压最低的单体毫伏值
+    // 2. 初始化电池容量和健康度
+    BQ76920_Data.Real_Capacity = BAT_CAPACITY_MAH;  // 额定容量 3400mAh
+    BQ76920_Data.SOH = 100.0f;
+
+    // 3. 初始化剩余电荷,提前找出当前电池组中电压最低的单体毫伏值
     Bms_Find_Voltage_Extremes();
 
-    // 3. 初始化SOC值（使用最小单体电压进行开路电压法估算）
+    // 4. 初始化SOC值（使用最小单体电压进行开路电压法估算）
     BQ76920_Get_SOC_From_Voltage(BQ76920_Data.MinVolt);
-    // 5. 初始化SOH值
-   BQ76920_Data.SOH = 100.0f;
-    BQ76920_Data.Real_Capacity = 3400.0f; // 对应 NCR18650B
-
+   
     // 4. 打印开机信息
-   // uart_printf("BQ76920 SOC: %d%%\n",(int)BQ76920_Data.SOC);
-
+  // uart_printf("BQ76920 SOC: %d%%\n",(int)BQ76920_Data.SOC);
 }

@@ -210,7 +210,6 @@ I2C_Device myi2c = {
 void BQ76920_ADC_Init(void)
 {
     BQ76920_Write_Reg(0x04, 0x18);// 开启ADC和NTC热敏电阻采样
-    
 }
 
 
@@ -291,7 +290,7 @@ CHG_ON和DSG_ON：这两个引脚分别用于充电和放电，当它们被设�
         return;
     }
 
-    temp_val |= 0x40; // 开启 CC_EN (Bit 6)
+    temp_val |= 0x40; // 开启 CC_EN (Bit 6)  
     
     // 使用新的带 CRC 的 Write 函数写入
     BQ76920_Write_Reg(0x05, temp_val);

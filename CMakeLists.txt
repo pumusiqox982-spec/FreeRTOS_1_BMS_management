@@ -56,8 +56,20 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Core/Src/iic_soft.c
     ${CMAKE_SOURCE_DIR}/Core/Src/Get_and_Convert.c
-    ${CMAKE_SOURCE_DIR}/Core/Src/Safety_Protection.c
+        ${CMAKE_SOURCE_DIR}/Core/Src/Safety_Protection.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/int_can.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/APP_UPDATA.c
+    ${CMAKE_SOURCE_DIR}/Core/Inc/APP_UPDATA.h
+    ${CMAKE_SOURCE_DIR}/Core/Src/bootloader.c
+    ${CMAKE_SOURCE_DIR}/Core/Inc/bootloader.h
 )
+
+# Generate .bin after building the target
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
+    COMMENT "Generating ${CMAKE_PROJECT_NAME}.bin"
+)
+
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

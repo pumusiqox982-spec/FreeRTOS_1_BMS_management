@@ -400,17 +400,10 @@ void Bms_Reset_Safety_Lock(void)
     BQ76920_Write_Reg(0x08, 0x40);
 
     // 7. 开启总闸
-    // 写入 0x03 开启 CHG 和 DSG MOS管，且确保 DELAY_DIS=0
+    // 写入 0x03 开启 CHG 和 DSG MOS管，且确保 DELAY_DIS=0，这里暂时不用开启，初始化那里开启了
     uint8_t reg_val = 0;
      // 1. 必须判断读取是否成功
     if (BQ76920_Read_Reg(0x05, &reg_val) == 0) 
-    {
-    reg_val |= 0x03; // 开启 MOS
-    
-    reg_val |= 0x40; // 【关键】强行补上 CC_EN，不管之前有没有，这里都确保它是开的
-    BQ76920_Write_Reg(0x05, reg_val);
-    }
-    else 
     {
     // 如果读取失败，千万不要随便写回！可以打印报错
     uart_printf("Error: Read 0x05 Failed!\n");
@@ -435,10 +428,10 @@ uint8_t BQ76920_Diagnose_Fault(void)
         return 0;
     }
 
-    // 检查是否有任何故障位 (Bit 5 ~ Bit 1)
+    // 检查是否有任何故障位 (Bit 5 ~ Bit 0)
     // 如果这些位全是 0，说明物理环境非常安全
-    if ((stat & 0x3E) == 0) {
-        uart_printf("状态: [安全] (SYS_STAT: 0x%02X)\n", stat);
+    if ((stat & 0x3F) == 0) {
+     //   uart_printf("状态: [安全] (SYS_STAT: 0x%02X)\n", stat);
         return 0; 
     }
 

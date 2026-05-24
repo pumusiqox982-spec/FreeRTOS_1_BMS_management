@@ -18,7 +18,7 @@ typedef struct {
     float  GAIN;             // 增益值
     int8_t OFFSET;           // 偏移量
     uint16_t Temp;             // 温度值
-    uint16_t Resistance;       // 电阻值
+    uint16_t Resistance;       // NTC温度电阻值
     float RemainingCharge;    // 剩余电荷
     float SOC;                // SOC值
 
