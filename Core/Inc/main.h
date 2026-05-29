@@ -59,6 +59,11 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 int uart_printf(const char* format, ...);
 void BMS_CAN_SendData(void);
+/**
+ * @brief  CAN 命令接收与处理（非阻塞，轮询方式）
+ * @note   在 FreeRTOS 任务中周期调用（如每 10ms 调用一次）
+ */
+void CAN_ProcessCommands(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

@@ -348,48 +348,107 @@ int uart_printf(const char* format, ...)
 */ 
  void BMS_CAN_SendData(void)
 {
-     CAN_TxHeaderTypeDef TxHeader;
-     uint8_t TxData[8];
-     uint32_t TxMailbox;
+    CAN_TxHeaderTypeDef txHeader;   // 定义元数据结构
+    uint8_t txData[8];             // 定义发送数据数组
+    uint32_t txMailbox;            // 定义发送邮箱变量
 
-     // --- 1. 设置“集装箱”标签和属性 ---
-     TxHeader.StdId = 0x101;           // 消息 ID：0x101 (可以自定义)
-     TxHeader.IDE = CAN_ID_STD;        // 标准帧
-     TxHeader.RTR = CAN_RTR_DATA;      // 数据帧
-     TxHeader.DLC = 8;                 // 发送 8 个字节
+    // ----- 帧0x181: 电流、温度、SOC -----
+    // ----- 帧0x181: 电流、温度、SOC -----
+    txHeader.StdId = 0x181;
+    txHeader.IDE = CAN_ID_STD;
+    txHeader.RTR = CAN_RTR_DATA;
+    txHeader.DLC = 8;
 
-     // --- 2. 装载货物（将 BMS 数据放入 8 个字节中） ---
-    
-     // 第1节 (Cell_V[0]) -> 占用 TxData 的 0 和 1
-     TxData[0] = (BQ76920_Data.Cell_V[0] >> 8) & 0xFF; 
-     TxData[1] = BQ76920_Data.Cell_V[0] & 0xFF;
+    int16_t current_int = (int16_t)BQ76920_Data.CC;
+    int16_t temp_int = (int16_t)BQ76920_Data.Temp;
+    uint16_t soc_int = (uint16_t)BQ76920_Data.SOC;
 
-     // 第2节 (Cell_V[1]) -> 占用 TxData 的 2 和 3
-     TxData[2] = (BQ76920_Data.Cell_V[1] >> 8) & 0xFF; 
-     TxData[3] = BQ76920_Data.Cell_V[1] & 0xFF;
+    txData[0] = (current_int >> 8) & 0xFF;
+    txData[1] = current_int & 0xFF;
+    txData[2] = (temp_int >> 8) & 0xFF;
+    txData[3] = temp_int & 0xFF;
+    txData[4] = (soc_int >> 8) & 0xFF;
+    txData[5] = soc_int & 0xFF;
 
-    // 第3节 (Cell_V[2]) -> 占用 TxData 的 4 和 5
-    TxData[4] = (BQ76920_Data.Cell_V[2] >> 8) & 0xFF; 
-    TxData[5] = BQ76920_Data.Cell_V[2] & 0xFF;
+    // 读取 MOS 状态寄存器 SYS_CTRL2 (地址 0x05)
+    uint8_t sys_ctrl2 = 0;
+    BQ76920_Read_Reg(0x05, &sys_ctrl2);
+    txData[6] = sys_ctrl2;   // bit0=CHG_ON, bit1=DSG_ON
 
-    // 第4节 (Cell_V[3]) -> 占用 TxData 的 6 和 7
-    TxData[6] = (BQ76920_Data.Cell_V[3] >> 8) & 0xFF; 
-    TxData[7] = BQ76920_Data.Cell_V[3] & 0xFF;
-    // --- 3. 扔到总线上 ---
-    // 如果发送失败，这里可以加简单的判断
-    HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    // 读取均衡状态 (0x01) 放入第7字节
+    uint8_t cell_bal = 0;
+    BQ76920_Read_Reg(0x01, &cell_bal);
+    txData[7] = cell_bal;   // 低5位表示均衡掩码
 
-     // --- 4. 第二次发送第五节电压，前面已经发送了前4节电压，这里只发送第五节电压
+    HAL_CAN_AddTxMessage(&hcan, &txHeader, txData, &txMailbox);
 
-     TxHeader.StdId = 0x102;
-     TxHeader.DLC = 2; // 只用2个字节
+    // ----- 帧0x182: 前四节电压 -----
+    txHeader.StdId = 0x182;
+    txData[0] = (BQ76920_Data.Cell_V[0] >> 8) & 0xFF;
+    txData[1] = BQ76920_Data.Cell_V[0] & 0xFF;
+    txData[2] = (BQ76920_Data.Cell_V[1] >> 8) & 0xFF;
+    txData[3] = BQ76920_Data.Cell_V[1] & 0xFF;
+    txData[4] = (BQ76920_Data.Cell_V[2] >> 8) & 0xFF;
+    txData[5] = BQ76920_Data.Cell_V[2] & 0xFF;
+    txData[6] = (BQ76920_Data.Cell_V[3] >> 8) & 0xFF;
+    txData[7] = BQ76920_Data.Cell_V[3] & 0xFF;
+    HAL_CAN_AddTxMessage(&hcan, &txHeader, txData, &txMailbox);
 
-     // 第5节 (Cell_V[4]) -> 占用 TxData 的 0 和 1
-     TxData[0] = (BQ76920_Data.Cell_V[4] >> 8) & 0xFF; 
-     TxData[1] = BQ76920_Data.Cell_V[4] & 0xFF;
-
-     HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    // ----- 帧0x183: 第五节 + 最小/最大/压差 -----
+    txHeader.StdId = 0x183;
+    txData[0] = (BQ76920_Data.Cell_V[4] >> 8) & 0xFF;
+    txData[1] = BQ76920_Data.Cell_V[4] & 0xFF;
+    txData[2] = ((uint16_t)BQ76920_Data.MinVolt >> 8) & 0xFF;
+    txData[3] = (uint16_t)BQ76920_Data.MinVolt & 0xFF;
+    txData[4] = ((uint16_t)BQ76920_Data.MaxVolt >> 8) & 0xFF;
+    txData[5] = (uint16_t)BQ76920_Data.MaxVolt & 0xFF;
+    txData[6] = ((uint16_t)BQ76920_Data.DiffVolt >> 8) & 0xFF;
+    txData[7] = (uint16_t)BQ76920_Data.DiffVolt & 0xFF;
+    HAL_CAN_AddTxMessage(&hcan, &txHeader, txData, &txMailbox);
 } 
+
+
+/**
+ * @brief  CAN 命令接收与处理（非阻塞，轮询方式）
+ * @note   在 FreeRTOS 任务中周期调用（如每 10ms 调用一次）
+ */
+void CAN_ProcessCommands(void)
+{
+    CAN_RxHeaderTypeDef rxHeader;
+    uint8_t rxData[8];
+    if (HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &rxHeader, rxData) != HAL_OK)
+        return;
+    if (rxHeader.StdId != 0x201 || rxHeader.DLC < 2)
+        return;
+
+    // 收到任何命令，都激活手动模式并重置计时器
+    Manual_Mode_Active = 1;
+    Manual_Mode_Timer = 0;
+
+    switch (rxData[0])
+    {
+        case 0x01: // 充电MOS
+            if (rxData[1]) Bms_Turn_On_Charge_MOS();
+            else Bms_Turn_Off_Charge_MOS();
+            break;
+        case 0x02: // 放电MOS
+            if (rxData[1]) Bms_Turn_On_Discharge_MOS();
+            else Bms_Turn_Off_Discharge_MOS();
+            break;
+        case 0x03: // 均衡
+            BQ76920_Write_Reg(0x01, rxData[1]);  // 直接写均衡寄存器
+            break;
+        case 0x04: // 复位锁定
+            Bms_Reset_Safety_Lock();
+            break;
+        default: break;
+    }
+}
+
+
+
+
+
  
 
 /* USER CODE END 4 */

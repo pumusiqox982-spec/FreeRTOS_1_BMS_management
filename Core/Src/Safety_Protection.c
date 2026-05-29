@@ -10,6 +10,15 @@
 Safety_Status Safety_Data = {0}; //分配内存，要是只声明不给赋值，会报错，在这里相当于是给内存赋值为0
 Watchdog_Monitor_t Watchdog_Monitor_Data = {0}; // 监控数据结构体实例
 
+
+// 手动模式
+uint8_t Manual_Mode_Active;   // 1: 手动模式激活，自动保护/均衡暂停
+uint32_t Manual_Mode_Timer;   // 手动模式计时器（毫秒）
+
+
+
+
+
 /******************************用于保护逻辑的函数******************************** */
 
 
@@ -50,6 +59,14 @@ void Check_Safety_protection(void)
         Bms_Turn_Off_Charge_MOS();
         Bms_Turn_Off_Discharge_MOS();
         return; // 直接退出函数，不再运行下方的软件采样和判断逻辑
+    }
+
+    // --- 2. 手动模式下，跳过软件保护逻辑（硬件保护仍在，且硬件锁定已处理）---
+    if (Manual_Mode_Active)
+    {
+        // 注意：锁定标志已经在上面判断过，这里如果未锁定则不做任何改变
+        // 即保持手动控制后的MOS状态不变
+        return;
     }
 
 
@@ -265,50 +282,41 @@ void Bms_Reset_Safety_Lock(void)
 
  void Bms_Turn_On_Balance_Mode(void)
  {
+    // 手动模式下，不自动调节均衡（但允许上位机直接写寄存器）
+    if (Manual_Mode_Active)
+    {
+        // 注意：上位机已经通过命令写入了0x01寄存器，这里不做任何修改
+        return;
+    }
+
+    // 以下为原来的自动均衡逻辑
     static uint32_t balance_timer = 0;
-    static uint8_t  balance_phase = 0; // 0: 奇数节周期, 1: 偶数节周期
+    static uint8_t balance_phase = 0;
     uint8_t balance_command = 0;
 
-    // --- 核心安全检查 ---
-    // 1. 只有充电且电压超过均衡阈值(如3.5V)才开启，保护电池不被白白放空
     if (BQ76920_Data.CC < 100 || BQ76920_Data.MaxVolt < 3500)
-     {
+    {
         BQ76920_Write_Reg(0x01, 0x00);
         return;
-     }
-
-    // 2. 压差过小不开启 (设置 20mV 的迟滞，防止 MOS 管频繁抖动)
-    if (BQ76920_Data.DiffVolt < 50) {
+    }
+    if (BQ76920_Data.DiffVolt < 50) 
+    {
         BQ76920_Write_Reg(0x01, 0x00);
         return;
     }
 
-    // --- 算法逻辑：奇偶轮替 + 阈值筛选 ---
     balance_timer++;
-    
-    // 假设每 30 秒切换一次奇偶相位，给电阻散热时间
-    if (balance_timer % 30 == 0) {
-        balance_phase = !balance_phase; 
-    }
+    if (balance_timer % 30 == 0) balance_phase = !balance_phase;
 
-    for (int i = 0; i < 5; i++) {
-        // 判断标准：比最小值高出 50mV 且符合当前相位
-        if ((BQ76920_Data.Cell_V[i] - BQ76920_Data.MinVolt) > 50) {
-            
-            // 相位过滤：phase 0 只许 0,2,4(1,3,5节)；phase 1 只许 1,3(2,4节)
-            if ((balance_phase == 0 && i % 2 == 0) || (balance_phase == 1 && i % 2 != 0)) {
+    for (int i = 0; i < 5; i++) 
+    {
+        if ((BQ76920_Data.Cell_V[i] - BQ76920_Data.MinVolt) > 50) 
+        {
+            if ((balance_phase == 0 && i % 2 == 0) || (balance_phase == 1 && i % 2 != 0)) 
                 balance_command |= (1 << i);
-            }
         }
     }
-
-    // --- 采样保护逻辑 ---
-    // 每 10 秒的最后一秒强制关闭均衡，为下一秒的任务3采样提供“纯净”的电压环境
-    if (balance_timer % 10 == 0) {
-        balance_command = 0x00; 
-    }
-
-    // 执行物理写入
+    if (balance_timer % 10 == 0) balance_command = 0x00;
     BQ76920_Write_Reg(0x01, balance_command);
  }
  

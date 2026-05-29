@@ -4,6 +4,13 @@
 #include "main.h"
 
 
+// 手动模式控制
+extern uint8_t Manual_Mode_Active;   // 1: 手动模式激活，自动保护/均衡暂停
+extern uint32_t Manual_Mode_Timer;   // 手动模式计时器（毫秒）
+#define MANUAL_MODE_TIMEOUT_MS  30000  // 30秒后自动退出手动模式
+
+
+
 
 typedef struct {
         uint16_t Over_Voltage_Threshold;            //过压保护的阈值

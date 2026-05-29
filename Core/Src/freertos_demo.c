@@ -169,7 +169,10 @@ void task1(void *pvParameters)
 {
     while(1)
     {
-       
+        // 处理 CAN 接收命令（非阻塞，轮询）
+        CAN_ProcessCommands();
+        vTaskDelay(100);
+
         
     }
 }
@@ -207,12 +210,13 @@ void task2(void *pvParameters)
        
        // uart_printf("Balance Active Bits: 0x%02X\r\n", real_bal_status);
         Watchdog_Monitor_Data.Task2_RunFlag = 1; // 标记任务2存活
-    //    uint8_t rx_data;
-    //if (HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK) {
-    //if (rx_data == 'U') {
-       // Bms_Reset_Safety_Lock();
-       // uart_printf("手动解锁命令已执行\n");
-    //}
+        uint8_t rx_data;
+    if (HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK) {
+    if (rx_data == 'U') {
+        Bms_Reset_Safety_Lock();
+        uart_printf("手动解锁命令已执行\n");
+    }
+}
     vTaskDelay(2000); // 均衡和打印，2秒一次完美
     }
           
@@ -241,6 +245,17 @@ void task3(void *pvParameters)
         // 注意：这个函数的执行频率必须和它内部计算公式的时间常数对齐
         BQ76920_Get_SOC();
         BQ76920_GET_SOH();
+        // 手动模式超时处理
+        if (Manual_Mode_Active)
+        {
+            Manual_Mode_Timer += 1000;   // 任务3周期1000ms
+            if (Manual_Mode_Timer >= MANUAL_MODE_TIMEOUT_MS)
+            {
+                Manual_Mode_Active = 0;
+                uart_printf("手动模式超时，已恢复自动模式。\n");
+                // 可选：立即进行一次自动保护评估（下一轮循环会自动做）
+            }
+        }
         Watchdog_Monitor_Data.Task3_RunFlag = 1; // 任务3打卡
         // 只有当两个任务都打过卡时，才喂狗
         if (Watchdog_Monitor_Data.Task2_RunFlag && Watchdog_Monitor_Data.Task3_RunFlag) {
@@ -250,7 +265,7 @@ void task3(void *pvParameters)
             Watchdog_Monitor_Data.Task3_RunFlag = 0;
         }
         // can 发送电压
-        //BMS_CAN_SendData();
+        BMS_CAN_SendData();
         vTaskDelay(1000);
     }
     

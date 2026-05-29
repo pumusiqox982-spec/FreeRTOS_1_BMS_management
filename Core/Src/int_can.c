@@ -14,28 +14,24 @@ extern CAN_HandleTypeDef hcan;
  */
 void CAN_Init(void)
 {
-   CAN_FilterTypeDef filterConfig = {0};
-   filterConfig.FilterBank = 0;                           // 选择过滤器0
-   filterConfig.FilterMode = CAN_FILTERMODE_IDMASK;       // 过滤器模式：掩码模式
-    filterConfig.FilterScale = CAN_FILTERSCALE_32BIT;       // 过滤器选择的位数：32位
+    CAN_FilterTypeDef filterConfig = {0};
+    filterConfig.FilterBank = 0;              
+    filterConfig.FilterMode = CAN_FILTERMODE_IDMASK;          // 标准ID掩码模式
+    filterConfig.FilterScale = CAN_FILTERSCALE_32BIT;         // 32位掩码
 
-   //填下寄存器  （现在作为上位机 接受A程序使用的can id 为0）
-   filterConfig.FilterIdHigh = 0x0000;                   // 过滤器ID
-   filterConfig.FilterIdLow = 0x0000;
-   
-   // 现在作为上位机 接受A程序使用的can id 为0  这样就是只接收id为0的消息
-    filterConfig.FilterMaskIdHigh = 0xFFe0;
+    // 修改为只接收标准ID 0x201 的数据
+    // 标准ID左移5位（因为11位ID占据高11位，低5位为IDE、RTR等）
+    filterConfig.FilterIdHigh = ((0x201 << 5) & 0xFFFF);  // 0x4020
+    filterConfig.FilterIdLow = 0x0000;
+    
+    // 掩码高11位全为1，精确匹配ID；低5位为0，不关心
+    filterConfig.FilterMaskIdHigh = 0xFFE0;   // 0b1111111111100000
     filterConfig.FilterMaskIdLow = 0x0000;
 
-   // 使用哪个队列
-    filterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;    // 有三个FIFO，0、1、2
-    // 激活过滤器
-    filterConfig.FilterActivation = CAN_FILTER_ENABLE;     
+    filterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+    filterConfig.FilterActivation = CAN_FILTER_ENABLE;
 
-    // 1.配置过滤器
     HAL_CAN_ConfigFilter(&hcan, &filterConfig);
-
-    // 2.开启can通信
     HAL_CAN_Start(&hcan);
 }
 
